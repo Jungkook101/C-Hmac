@@ -1,97 +1,80 @@
 #include <iostream>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include <chrono>
-#include <string>
 #include <cstring>
+#include <unistd.h>
+#include <arpa/inet.h>
 
-// Set the server address and port
-const char* HOST = "127.0.0.1"; // Server IP address
-const int PORT = 5001;          // Server port
+const char* SERVER_IP = "127.0.0.1";  // Server IP address
+const int PORT = 5001;                // Server port
 
 void run_client() {
-    // Benchmark settings:
-    const size_t message_size = 1024 * 1024;  // 1 MB per message
-    const int num_messages = 100;             // Total of 100 messages
-    const size_t total_bytes = message_size * num_messages;
-    
-    // Create a 1 MB block of data
-    char* data = new char[message_size];
-    memset(data, 'a', message_size);
-    
+    int sock = 0;
+    struct sockaddr_in server_address;
+
+    // Benchmark settings
+    const int message_size = 1024 * 1024;  // 1 MB per message
+    const int num_messages = 100;          // Total of 100 messages
+    const long total_bytes = static_cast<long>(message_size) * num_messages;
+    char data[message_size];               // Create a 1 MB block of data
+    memset(data, 'a', message_size);       // Fill with 'a'
+
     // Create socket
-    int client_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_socket < 0) {
-        std::cerr << "Error creating socket" << std::endl;
-        delete[] data;
-        return;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation error");
+        exit(EXIT_FAILURE);
     }
-    
-    // Configure server address
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
-    
-    if (inet_pton(AF_INET, HOST, &server_addr.sin_addr) <= 0) {
-        std::cerr << "Invalid address / Address not supported" << std::endl;
-        close(client_socket);
-        delete[] data;
-        return;
+
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(PORT);
+
+    // Convert IP address to binary form
+    if (inet_pton(AF_INET, SERVER_IP, &server_address.sin_addr) <= 0) {
+        perror("Invalid address / Address not supported");
+        exit(EXIT_FAILURE);
     }
-    
-    // Connect to server
-    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        std::cerr << "Connection failed" << std::endl;
-        close(client_socket);
-        delete[] data;
-        return;
+
+    // Connect to the server
+    if (connect(sock, (struct sockaddr*)&server_address, sizeof(server_address)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
     }
-    
-    std::cout << "Connected to server at " << HOST << ":" << PORT << std::endl;
-    
+
+    std::cout << "Connected to server at " << SERVER_IP << ":" << PORT << std::endl;
+
     // Start timer for the benchmark
     auto start_time = std::chrono::high_resolution_clock::now();
-    
+
     // Send the data in a loop
-    for (int i = 0; i < num_messages; i++) {
-        ssize_t bytes_sent = send(client_socket, data, message_size, 0);
-        if (bytes_sent < 0) {
-            std::cerr << "Error sending data" << std::endl;
-            close(client_socket);
-            delete[] data;
-            return;
-        }
-        std::cout << "Sent message " << (i + 1) << "/" << num_messages << std::endl;
+    for (int i = 0; i < num_messages; ++i) {
+        send(sock, data, message_size, 0);
+        std::cout << "Sent message " << i + 1 << "/" << num_messages << std::endl;
     }
-    
+
     // Shutdown the sending side to indicate completion
-    shutdown(client_socket, SHUT_WR);
-    
+    shutdown(sock, SHUT_WR);
+
     // Optionally, wait for an acknowledgment from the server
-    char ack_buffer[1024];
-    int bytes_received = recv(client_socket, ack_buffer, sizeof(ack_buffer) - 1, 0);
-    
+    char ack[1024];
+    int bytes_received = read(sock, ack, sizeof(ack));
     if (bytes_received > 0) {
-        ack_buffer[bytes_received] = '\0';
-        std::cout << "Received acknowledgment: " << ack_buffer << std::endl;
+        ack[bytes_received] = '\0';  // Null-terminate the received string
+        std::cout << "Received acknowledgment: " << ack << std::endl;
     }
-    
+
+    // End timer
     auto end_time = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end_time - start_time;
-    
     double throughput = total_bytes / elapsed.count();
-    
+
     std::cout << "Sent " << total_bytes << " bytes in " << elapsed.count() << " seconds." << std::endl;
     std::cout << "Throughput: " << throughput / 1024 << " KB/s" << std::endl;
-    
-    // Clean up
-    close(client_socket);
-    delete[] data;
+
+    // Close the socket
+    close(sock);
 }
 
 int main() {
     run_client();
     return 0;
 }
+
