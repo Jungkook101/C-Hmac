@@ -3,29 +3,28 @@
 #include <vector>
 #include <chrono>
 #include <cstring>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include <winsock2.h>  // Include the Winsock header
 
 // Set the server address and port
 constexpr const char* HOST = "127.0.0.1";  // Server IP address
 constexpr int PORT = 5001;                // Server port
 
 void run_client() {
-    // Benchmark settings
-    constexpr size_t message_size = 1024 * 1024;  // 1 MB per message
-    constexpr int num_messages = 100;             // Total of 100 messages
-    constexpr size_t total_bytes = message_size * num_messages;
-    
     // Initialize Winsock
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "WSAStartup failed" << std::endl;
         return;
     }
+
+    // Benchmark settings
+    constexpr size_t message_size = 1024 * 1024;  // 1 MB per message
+    constexpr int num_messages = 100;             // Total of 100 messages
+    constexpr size_t total_bytes = message_size * num_messages;
     
     // Create a socket
-    SOCKET client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (client_socket == INVALID_SOCKET) {
+    int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (client_socket == -1) {
         std::cerr << "Failed to create socket" << std::endl;
         WSACleanup();
         return;
@@ -39,7 +38,7 @@ void run_client() {
     // Convert IPv4 address from text to binary form
     if (inet_pton(AF_INET, HOST, &server_addr.sin_addr) <= 0) {
         std::cerr << "Invalid address or address not supported" << std::endl;
-        closesocket(client_socket);
+        close(client_socket);
         WSACleanup();
         return;
     }
@@ -47,7 +46,7 @@ void run_client() {
     // Connect to the server
     if (connect(client_socket, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
         std::cerr << "Connection failed" << std::endl;
-        closesocket(client_socket);
+        close(client_socket);
         WSACleanup();
         return;
     }
@@ -68,9 +67,9 @@ void run_client() {
         while (total_sent < message_size) {
             ssize_t bytes_sent = send(client_socket, data.data() + total_sent, message_size - total_sent, 0);
             
-            if (bytes_sent == SOCKET_ERROR) {
+            if (bytes_sent == -1) {
                 std::cerr << "Send failed" << std::endl;
-                closesocket(client_socket);
+                close(client_socket);
                 WSACleanup();
                 return;
             }
@@ -82,7 +81,7 @@ void run_client() {
     }
     
     // Shutdown the sending side to indicate completion
-    shutdown(client_socket, SD_SEND);
+    shutdown(client_socket, SHUT_WR);
     
     // Optionally, wait for an acknowledgment from the server
     char ack_buffer[1024];
@@ -104,7 +103,9 @@ void run_client() {
     std::cout << "Throughput: " << throughput / 1024 << " KB/s" << std::endl;
     
     // Close the socket
-    closesocket(client_socket);
+    close(client_socket);
+    
+    // Cleanup Winsock
     WSACleanup();
 }
 
